@@ -1,9 +1,30 @@
-import { ActorType, PersonType } from '~/types'
+import { Dayjs } from 'lib/dayjs'
 
-export interface RetentionTablePayload {
-    date: string
+import { ActorType } from '~/types'
+
+export const NO_BREAKDOWN_VALUE = '$$__posthog_...__$$'
+
+export interface ProcessedRetentionValue {
+    count: number
+    percentage: number
+    cellDate: Dayjs
+    isCurrentPeriod: boolean
+    isFuture: boolean
+}
+
+export interface ProcessedRetentionPayload {
+    date: Dayjs
     label: string
-    values: Record<string, any>[]
+    people_url: string
+    values: ProcessedRetentionValue[]
+    breakdown_value?: string | number | null
+}
+
+export interface RetentionTableRow {
+    label: string
+    cohortSize: number
+    values: ProcessedRetentionValue[]
+    breakdown_value?: string | number | null
 }
 
 export interface RetentionTrendPayload {
@@ -11,16 +32,15 @@ export interface RetentionTrendPayload {
     data: number[]
     days: string[]
     labels: string[]
+    index: number
+    breakdown_value?: string | number | null
 }
 
 export interface RetentionTablePeoplePayload {
-    next?: string
-    result?: RetentionTableAppearanceType[]
-}
-
-export interface RetentionTrendPeoplePayload {
-    next?: string
-    result?: PersonType[]
+    next?: string // Legacy support
+    offset?: number // Offset for HogQL queries
+    result?: RetentionTableAppearanceType[] // TODO: Rename to plural responses to match HogQL responses
+    missing_persons?: number
 }
 
 export interface RetentionTableAppearanceType {

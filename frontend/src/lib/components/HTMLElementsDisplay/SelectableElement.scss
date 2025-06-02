@@ -1,0 +1,33 @@
+.SelectableElement {
+    border: 1px solid transparent;
+    border-radius: var(--radius);
+    transition: background-color 200ms ease, color 200ms ease, border 200ms ease;
+
+    &.SelectableElement--selected {
+        color: var(--text-primary);
+        text-decoration: underline;
+        background: var(--accent);
+
+        [theme='dark'] & {
+            color: var(--text-primary-inverse);
+        }
+    }
+
+    &:hover {
+        color: var(--text-primary);
+        background: var(--accent-hover);
+
+        [theme='dark'] & {
+            color: var(--text-primary-inverse);
+        }
+    }
+
+    &:active {
+        color: var(--text-primary);
+        background: var(--accent-active);
+
+        [theme='dark'] & {
+            color: var(--text-primary-inverse);
+        }
+    }
+}

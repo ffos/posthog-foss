@@ -1,15 +1,22 @@
-import React from 'react'
-import { Tag } from 'antd'
+import { LemonTag } from '@posthog/lemon-ui'
 import { BindLogic, useActions, useValues } from 'kea'
-import { taxonomicFilterLogic } from './taxonomicFilterLogic'
-import { infiniteListLogic } from 'lib/components/TaxonomicFilter/infiniteListLogic'
 import { InfiniteList } from 'lib/components/TaxonomicFilter/InfiniteList'
+import { infiniteListLogic } from 'lib/components/TaxonomicFilter/infiniteListLogic'
 import { TaxonomicFilterGroupType, TaxonomicFilterLogicProps } from 'lib/components/TaxonomicFilter/types'
-import clsx from 'clsx'
+import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
+import { cn } from 'lib/utils/css-classes'
+
+import { TaxonomicFilterEmptyState, taxonomicFilterGroupTypesWithEmptyStates } from './TaxonomicFilterEmptyState'
+import { taxonomicFilterLogic } from './taxonomicFilterLogic'
+
+// Number of taxonomic groups after which we switch to vertical layout by default
+const VERTICAL_LAYOUT_THRESHOLD = 4
 
 export interface InfiniteSelectResultsProps {
     focusInput: () => void
     taxonomicFilterLogicProps: TaxonomicFilterLogicProps
+    popupAnchorElement: HTMLDivElement | null
+    useVerticalLayout?: boolean
 }
 
 function CategoryPill({
@@ -25,74 +32,133 @@ function CategoryPill({
 }): JSX.Element {
     const logic = infiniteListLogic({ ...taxonomicFilterLogicProps, listGroupType: groupType })
     const { taxonomicGroups } = useValues(taxonomicFilterLogic)
-    const { totalCount } = useValues(logic)
+    const { totalResultCount, totalListCount, isLoading, results, hasRemoteDataSource } = useValues(logic)
 
     const group = taxonomicGroups.find((g) => g.type === groupType)
 
+    // :TRICKY: use `totalListCount` (results + extra) to toggle interactivity, while showing `totalResultCount`
+    const canInteract = totalListCount > 0 || taxonomicFilterGroupTypesWithEmptyStates.includes(groupType)
+    const hasOnlyDefaultItems = results?.length === 1 && (!results[0].id || results[0].id === '')
+    const showLoading = isLoading && (!results || results.length === 0 || hasOnlyDefaultItems) && hasRemoteDataSource
+
     return (
-        <Tag
+        <LemonTag
+            type={isActive ? 'primary' : canInteract ? 'option' : 'muted'}
             data-attr={`taxonomic-tab-${groupType}`}
-            className={clsx({ 'taxonomic-pill-active': isActive, 'taxonomic-count-zero': totalCount === 0 })}
-            onClick={onClick}
+            onClick={canInteract ? onClick : undefined}
+            disabledReason={!canInteract ? 'No results' : null}
+            className="font-normal"
         >
-            {group?.name}: {totalCount || 0}
-        </Tag>
+            {group?.render ? (
+                group?.name
+            ) : (
+                <>
+                    {group?.name}
+                    {': '}
+                    {showLoading ? (
+                        <Spinner className="text-sm inline-block ml-1" textColored speed="0.8s" />
+                    ) : (
+                        totalResultCount
+                    )}
+                </>
+            )}
+        </LemonTag>
     )
 }
 
 export function InfiniteSelectResults({
     focusInput,
     taxonomicFilterLogicProps,
+    popupAnchorElement,
+    useVerticalLayout: useVerticalLayoutProp,
 }: InfiniteSelectResultsProps): JSX.Element {
-    const { activeTab, taxonomicGroups, taxonomicGroupTypes } = useValues(taxonomicFilterLogic)
-    const { setActiveTab } = useActions(taxonomicFilterLogic)
-
-    if (taxonomicGroupTypes.length === 1) {
-        return (
-            <BindLogic
-                logic={infiniteListLogic}
-                props={{ ...taxonomicFilterLogicProps, listGroupType: taxonomicGroupTypes[0] }}
-            >
-                <InfiniteList />
-            </BindLogic>
-        )
-    }
+    const { activeTab, taxonomicGroups, taxonomicGroupTypes, activeTaxonomicGroup, value } =
+        useValues(taxonomicFilterLogic)
 
     const openTab = activeTab || taxonomicGroups[0].type
-    return (
+    const logic = infiniteListLogic({ ...taxonomicFilterLogicProps, listGroupType: openTab })
+
+    const { setActiveTab, selectItem } = useActions(taxonomicFilterLogic)
+
+    const { totalListCount, items } = useValues(logic)
+
+    const RenderComponent = activeTaxonomicGroup?.render
+
+    const hasMultipleGroups = taxonomicGroupTypes.length > 1
+
+    const listComponent = RenderComponent ? (
+        <RenderComponent
+            {...(activeTaxonomicGroup?.componentProps ?? {})}
+            value={value}
+            onChange={(newValue, item) => selectItem(activeTaxonomicGroup, newValue, item, items.originalQuery)}
+        />
+    ) : (
         <>
-            <div className={'taxonomic-group-title'}>Categories</div>
-            <div className={'taxonomic-pills'}>
+            {hasMultipleGroups && (
+                <div className="taxonomic-group-title pb-2">
+                    {taxonomicGroups.find((g) => g.type === openTab)?.name || openTab}
+                </div>
+            )}
+            <InfiniteList popupAnchorElement={popupAnchorElement} />
+        </>
+    )
+
+    const showEmptyState = totalListCount === 0 && taxonomicFilterGroupTypesWithEmptyStates.includes(openTab)
+
+    const useVerticalLayout =
+        useVerticalLayoutProp !== undefined
+            ? useVerticalLayoutProp
+            : taxonomicGroupTypes.length > VERTICAL_LAYOUT_THRESHOLD
+
+    return (
+        <div className={cn('flex h-full', useVerticalLayout ? 'flex-row' : 'flex-col')}>
+            {hasMultipleGroups && (
+                <div
+                    className={cn(
+                        useVerticalLayout ? 'border-r pr-2 mr-2 flex-shrink-0' : 'border-b mb-2',
+                        'border-primary'
+                    )}
+                >
+                    <div className="taxonomic-group-title">Categories</div>
+                    <div
+                        className={cn(
+                            'taxonomic-pills flex',
+                            useVerticalLayout ? 'flex-col gap-1' : 'gap-0.5 flex-wrap'
+                        )}
+                    >
+                        {taxonomicGroupTypes.map((groupType) => {
+                            return (
+                                <CategoryPill
+                                    key={groupType}
+                                    groupType={groupType}
+                                    taxonomicFilterLogicProps={taxonomicFilterLogicProps}
+                                    isActive={groupType === openTab}
+                                    onClick={() => {
+                                        setActiveTab(groupType)
+                                        focusInput()
+                                    }}
+                                />
+                            )
+                        })}
+                    </div>
+                </div>
+            )}
+
+            <div className={cn('flex-1 overflow-hidden min-h-0')}>
                 {taxonomicGroupTypes.map((groupType) => {
                     return (
-                        <CategoryPill
-                            key={groupType}
-                            groupType={groupType}
-                            taxonomicFilterLogicProps={taxonomicFilterLogicProps}
-                            isActive={groupType === openTab}
-                            onClick={() => {
-                                setActiveTab(groupType)
-                                focusInput()
-                            }}
-                        />
+                        <div key={groupType} className={cn(groupType === openTab ? 'flex flex-col h-full' : 'hidden')}>
+                            <BindLogic
+                                logic={infiniteListLogic}
+                                props={{ ...taxonomicFilterLogicProps, listGroupType: groupType }}
+                            >
+                                {showEmptyState && <TaxonomicFilterEmptyState groupType={groupType} />}
+                                {!showEmptyState && listComponent}
+                            </BindLogic>
+                        </div>
                     )
                 })}
             </div>
-            <div className={'taxonomic-group-title with-border'}>
-                {taxonomicGroups.find((g) => g.type === openTab)?.name || openTab}
-            </div>
-            {taxonomicGroupTypes.map((groupType) => {
-                return (
-                    <div key={groupType} style={{ display: groupType === openTab ? 'block' : 'none' }}>
-                        <BindLogic
-                            logic={infiniteListLogic}
-                            props={{ ...taxonomicFilterLogicProps, listGroupType: groupType }}
-                        >
-                            <InfiniteList />
-                        </BindLogic>
-                    </div>
-                )
-            })}
-        </>
+        </div>
     )
 }

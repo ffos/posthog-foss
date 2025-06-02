@@ -1,144 +1,100 @@
-/* Used for graphs line or background color (as applicable) */
-export const lightColors = [
-    'navy',
-    'blue',
-    'cyan',
-    'orange',
-    'yellow',
-    'olive',
-    'green',
-    'lime',
-    'mint',
-    'maroon',
-    'brown',
-    'apricot',
-    'pink',
-    'salmon',
-    'indigo',
-    'purple',
-]
+import posthog from 'posthog-js'
 
-export const tagColors = [
-    'blue',
-    'cyan',
-    'orange',
-    'gold',
-    'green',
-    'lime',
-    'volcano',
-    'magenta',
-    'purple',
-    'red',
-    'geekblue',
-]
+import { LifecycleToggle } from '~/types'
 
-const getColorVar = (variable: string): string =>
-    getComputedStyle(document.body)
-        .getPropertyValue('--' + variable)
-        .trim()
+import { LemonTagType } from './lemon-ui/LemonTag'
 
-export const darkWhites = [
-    'rgba(255,255,255,0.6)',
-    'rgba(255,255,180,0.5)',
-    'rgba(180,255,255,0.4)',
-    'rgba(255,255,180,0.3)',
-    'rgba(180,255,255,0.2)',
-]
+/*
+ * Data colors.
+ */
 
-const hueDiff = -10
+/** CSS variable names for the default posthog theme data colors. */
+export const dataColorVars = [
+    'data-color-1',
+    'data-color-2',
+    'data-color-3',
+    'data-color-4',
+    'data-color-5',
+    'data-color-6',
+    'data-color-7',
+    'data-color-8',
+    'data-color-9',
+    'data-color-10',
+    'data-color-11',
+    'data-color-12',
+    'data-color-13',
+    'data-color-14',
+    'data-color-15',
+] as const
 
-export function colorsForBackground(hue: number, saturation = 63, lightness = 40): string[] {
-    return [
-        `hsl(${hue + hueDiff}, ${saturation - 20}%, ${lightness + 40}%)`,
-        `hsl(${hue + hueDiff}, ${saturation + 40}%, ${lightness + 20}%)`,
-        `hsl(${hue + hueDiff}, ${saturation + 40}%, ${lightness - 20}%)`,
-        `hsl(${hue - hueDiff}, ${saturation}%, ${lightness + 20}%)`,
-        `hsl(${hue - hueDiff}, ${saturation}%, ${lightness - 20}%)`,
-        `hsl(${hue - hueDiff}, ${saturation + 40}%, ${lightness + 20}%)`,
-        `hsl(${hue - hueDiff}, ${saturation + 40}%, ${lightness - 20}%)`,
-        `hsl(${hue - hueDiff * 6}, ${saturation}%, ${lightness}%)`,
-        `hsl(${hue - hueDiff * 6}, ${saturation}%, ${lightness - 20}%)`,
-        `hsl(${hue - hueDiff * 6}, ${saturation + 40}%, ${lightness + 40}%)`,
-        `hsl(${hue + hueDiff * 6}, ${saturation}%, ${lightness}%)`,
-        `hsl(${hue + hueDiff * 6}, ${saturation}%, ${lightness - 20}%)`,
-        `hsl(${hue + hueDiff * 6}, ${saturation + 40}%, ${lightness + 40}%)`,
-        `hsl(${hue - hueDiff * 9}, ${saturation}%, ${lightness}%)`,
-        `hsl(${hue - hueDiff * 9}, ${saturation}%, ${lightness - 20}%)`,
-        `hsl(${hue - hueDiff * 9}, ${saturation + 40}%, ${lightness + 40}%)`,
-        `hsl(${hue + hueDiff * 9}, ${saturation}%, ${lightness}%)`,
-        `hsl(${hue + hueDiff * 9}, ${saturation}%, ${lightness - 20}%)`,
-        `hsl(${hue + hueDiff * 9}, ${saturation + 40}%, ${lightness + 40}%)`,
-    ]
+export type DataColorToken =
+    | 'preset-1'
+    | 'preset-2'
+    | 'preset-3'
+    | 'preset-4'
+    | 'preset-5'
+    | 'preset-6'
+    | 'preset-7'
+    | 'preset-8'
+    | 'preset-9'
+    | 'preset-10'
+    | 'preset-11'
+    | 'preset-12'
+    | 'preset-13'
+    | 'preset-14'
+    | 'preset-15'
+
+export type DataColorTheme = Partial<Record<DataColorToken, string>> & {
+    [key: `preset-${number}`]: string
 }
 
-export const dashboardColorNames = {
-    white: 'White',
-    blue: 'Blue',
-    green: 'Green',
-    purple: 'Purple',
-    black: 'Black',
-}
-
-// update DashboardItems.scss with the color CSS variables
-export const dashboardColorHSL = {
-    white: [0, 0, 100],
-    blue: [212, 63, 40],
-    purple: [249, 46, 51],
-    green: [145, 60, 34],
-    black: [0, 0, 18],
-}
-
-export const cssHSLA = (h: number, s: number, l: number, a: number = 1): string =>
-    `hsla(${h % 360}, ${Math.max(0, Math.min(100, s))}%, ${Math.max(0, Math.min(100, l))}%, ${a})`
-
-export const dashboardColors: Record<string, string> = {}
-Object.entries(dashboardColorHSL).forEach(([key, [h, s, l]]) => {
-    dashboardColors[key] = cssHSLA(h, s, l)
-})
-
-export function getChartColors(
-    backgroundColor: string,
-    numSeries?: number,
-    injectLightColors: boolean = false
-): string[] {
-    const alpha = 80
-
-    if (backgroundColor === 'black') {
-        const colors = []
-        for (let i = 0; i < (numSeries ?? 20); i++) {
-            const h = ((40 + i * 160) % 360) + (i > 10 ? 40 : 0)
-            const s = i > 0 ? 30 : 10
-            const l = 90 - (i % 5) * 10 //  (i % 2 === 0 ? i : (10 - i)) * 7
-            colors.push(cssHSLA(h, s, l))
-            if (injectLightColors) {
-                colors.push(cssHSLA(h, s, l, alpha / 100))
-            }
-        }
-        return colors
+export function getColorVar(variable: string): string {
+    const colorValue = getComputedStyle(document.body).getPropertyValue('--' + variable)
+    if (!colorValue) {
+        posthog.captureException(new Error(`Couldn't find color variable --${variable}`))
+        // Fall back to black or white depending on the theme
+        return document.body.getAttribute('theme') === 'light' ? '#000' : '#fff'
     }
-
-    if (backgroundColor === 'white' || !backgroundColor) {
-        const colors: string[] = []
-        for (let i = 0; i < (numSeries ?? 20); i++) {
-            const hex = getColorVar(lightColors[i % lightColors.length]).substring(0, 7)
-            colors.push(hex)
-            if (injectLightColors) {
-                colors.push(`${hex}${alpha}`)
-            }
-        }
-        return colors
-    }
-
-    const colors = dashboardColorHSL[backgroundColor as keyof typeof dashboardColorHSL]
-
-    if (colors) {
-        return colorsForBackground(colors[0], colors[1], colors[2])
-    }
-
-    return darkWhites
+    return colorValue.trim()
 }
 
-export function getBarColorFromStatus(status: string, hover?: boolean): string {
+export function getDataThemeColor(theme: DataColorTheme, color: DataColorToken): string {
+    return theme[color] as string
+}
+
+/** Returns the color for the given series index.
+ *
+ * The returned colors are in hex format for compatibility with Chart.js. They repeat
+ * after all possible values have been exhausted.
+ *
+ * @param index The index of the series color.
+ */
+export function getSeriesColor(index: number = 0): string {
+    const adjustedIndex = index % dataColorVars.length
+    return getColorVar(dataColorVars[adjustedIndex])
+}
+
+/** Returns all color options for series */
+export function getSeriesColorPalette(): string[] {
+    return dataColorVars.map((colorVar) => getColorVar(colorVar))
+}
+
+/** Return the background color for the given series index. */
+export function getSeriesBackgroundColor(index: number): string {
+    return `${getSeriesColor(index)}30`
+}
+
+/** Returns the color for the given series index. When comparing against previous ... */
+export function getTrendLikeSeriesColor(index: number, isPrevious: boolean): string {
+    const baseHex = getSeriesColor(index)
+    return isPrevious ? `${baseHex}80` : baseHex
+}
+
+/** Return hexadecimal color value for lifecycle status.
+ *
+ * Hexadecimal is necessary as Chart.js doesn't work with CSS vars.
+ */
+export function getBarColorFromStatus(status: LifecycleToggle, hover?: boolean): string {
     switch (status) {
         case 'new':
         case 'returning':
@@ -146,20 +102,35 @@ export function getBarColorFromStatus(status: string, hover?: boolean): string {
         case 'dormant':
             return getColorVar(`lifecycle-${status}${hover ? '-hover' : ''}`)
         default:
-            return 'black'
+            throw new Error(`Unknown lifecycle status: ${status}`)
     }
 }
 
-export function getGraphColors(isLightTheme: boolean = true): Record<string, string | null> {
+export function getGraphColors(): Record<string, string | null> {
     return {
-        axisLabel: isLightTheme ? '#333' : 'rgba(255,255,255,0.8)',
-        axisLine: isLightTheme ? '#ddd' : 'rgba(255,255,255,0.2)',
-        axis: isLightTheme ? '#999' : 'rgba(255,255,255,0.6)',
-        crosshair: 'rgba(0,0,0,0.2)',
-        tooltipBackground: '#1dc9b7',
-        tooltipTitle: '#fff',
-        tooltipBody: '#fff',
-        annotationColor: isLightTheme ? null : 'white',
-        annotationAccessoryColor: isLightTheme ? null : 'black',
+        axisLabel: getColorVar('color-graph-axis-label'),
+        axisLine: getColorVar('color-graph-axis-line'),
+        axis: getColorVar('color-graph-axis'),
+        crosshair: getColorVar('color-graph-crosshair'),
+
+        // TODO: these are not used anywhere, but setting them to the correct values
+        tooltipBackground: getColorVar('bg-surface-tooltip'),
+        tooltipTitle: getColorVar('text-primary'),
+        tooltipBody: getColorVar('bg-surface-tooltip'),
     }
 }
+
+/*
+ * Tag colors.
+ */
+
+export const tagColors: LemonTagType[] = [
+    'primary',
+    'highlight',
+    'warning',
+    'danger',
+    'success',
+    'completion',
+    'caution',
+    'option',
+]

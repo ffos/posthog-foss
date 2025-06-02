@@ -1,0 +1,159 @@
+import { LemonButton, LemonSelect, LemonTag, lemonToast } from '@posthog/lemon-ui'
+import { LemonRadio } from 'lib/lemon-ui/LemonRadio'
+import { useEffect, useState } from 'react'
+
+import { ExternalDataSourceSyncSchema } from '~/types'
+
+const getIncrementalSyncSupported = (
+    schema: ExternalDataSourceSyncSchema
+): { disabled: true; disabledReason: string } | { disabled: false } => {
+    if (!schema.incremental_available) {
+        return {
+            disabled: true,
+            disabledReason: "Incremental replication isn't supported on this table",
+        }
+    }
+
+    if (schema.incremental_fields.length === 0) {
+        return {
+            disabled: true,
+            disabledReason: 'No incremental fields found on table',
+        }
+    }
+
+    return {
+        disabled: false,
+    }
+}
+
+interface SyncMethodFormProps {
+    schema: ExternalDataSourceSyncSchema
+    onClose: () => void
+    onSave: (
+        syncType: ExternalDataSourceSyncSchema['sync_type'],
+        incrementalField: string | null,
+        incrementalFieldType: string | null
+    ) => void
+    saveButtonIsLoading?: boolean
+}
+
+const getSaveDisabledReason = (
+    syncType: 'full_refresh' | 'incremental' | undefined,
+    incrementalField: string | null
+): string | undefined => {
+    if (!syncType) {
+        return 'You must select a sync method before saving'
+    }
+
+    if (syncType === 'incremental' && !incrementalField) {
+        return 'You must select an incremental field'
+    }
+}
+
+export const SyncMethodForm = ({ schema, onClose, onSave, saveButtonIsLoading }: SyncMethodFormProps): JSX.Element => {
+    const incrementalSyncSupported = getIncrementalSyncSupported(schema)
+
+    const [radioValue, setRadioValue] = useState(
+        schema.sync_type ?? (incrementalSyncSupported ? 'incremental' : undefined)
+    )
+    const [incrementalFieldValue, setIncrementalFieldValue] = useState(schema.incremental_field ?? null)
+
+    useEffect(() => {
+        setRadioValue(schema.sync_type ?? (incrementalSyncSupported ? 'incremental' : undefined))
+        setIncrementalFieldValue(schema.incremental_field ?? null)
+    }, [schema.table])
+
+    return (
+        <>
+            <LemonRadio
+                radioPosition="top"
+                value={radioValue}
+                options={[
+                    {
+                        value: 'incremental',
+                        disabledReason:
+                            (incrementalSyncSupported.disabled && incrementalSyncSupported.disabledReason) || undefined,
+                        label: (
+                            <div className="mb-4 font-normal">
+                                <div className="items-center flex leading-[normal] overflow-hidden mb-1">
+                                    <h4 className="mb-0 mr-2 text-base font-semibold">Incremental replication</h4>
+                                    {!incrementalSyncSupported.disabled && (
+                                        <LemonTag type="success">Recommended</LemonTag>
+                                    )}
+                                </div>
+                                <p className="mb-1">
+                                    When using incremental replication, we'll store the max value of the below field on
+                                    each sync and only sync rows with greater or equal value on the next run.
+                                </p>
+                                <p className="mb-1">
+                                    You should pick a field that increments or updates each time the row is updated,
+                                    such as a <code>updated_at</code> timestamp.
+                                </p>
+                                <LemonSelect
+                                    value={incrementalFieldValue}
+                                    onChange={(newValue) => setIncrementalFieldValue(newValue)}
+                                    options={
+                                        schema.incremental_fields.map((n) => ({
+                                            value: n.field,
+                                            label: (
+                                                <>
+                                                    <span className="leading-5">{n.label}</span>
+                                                    <LemonTag className="ml-2" type="success">
+                                                        {n.type}
+                                                    </LemonTag>
+                                                </>
+                                            ),
+                                        })) ?? []
+                                    }
+                                    disabledReason={incrementalSyncSupported.disabled ? '' : undefined}
+                                />
+                            </div>
+                        ),
+                    },
+                    {
+                        value: 'full_refresh',
+                        label: (
+                            <div className="mb-6 font-normal">
+                                <div className="items-center flex leading-[normal] overflow-hidden mb-1">
+                                    <h4 className="mb-0 mr-2 text-base font-semibold">Full table replication</h4>
+                                </div>
+                                <p className="m-0">
+                                    We'll replicate the whole table on every sync. This can take longer to sync and
+                                    increase your monthly billing.
+                                </p>
+                            </div>
+                        ),
+                    },
+                ]}
+                onChange={(newValue) => setRadioValue(newValue)}
+            />
+            <div className="flex flex-row justify-end w-full">
+                <LemonButton className="mr-3" type="secondary" onClick={onClose}>
+                    Close
+                </LemonButton>
+                <LemonButton
+                    type="primary"
+                    loading={saveButtonIsLoading}
+                    disabledReason={getSaveDisabledReason(radioValue, incrementalFieldValue)}
+                    onClick={() => {
+                        if (radioValue === 'incremental') {
+                            const fieldSelected = schema.incremental_fields.find(
+                                (n) => n.field === incrementalFieldValue
+                            )
+                            if (!fieldSelected) {
+                                lemonToast.error('Selected field for incremental replication not found')
+                                return
+                            }
+
+                            onSave('incremental', incrementalFieldValue, fieldSelected.field_type)
+                        } else {
+                            onSave('full_refresh', null, null)
+                        }
+                    }}
+                >
+                    Save
+                </LemonButton>
+            </div>
+        </>
+    )
+}

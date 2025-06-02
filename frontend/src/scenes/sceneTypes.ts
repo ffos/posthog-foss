@@ -1,52 +1,109 @@
 import { LogicWrapper } from 'kea'
 
+import { AccessControlResourceType, ActivityScope } from '~/types'
+
 // The enum here has to match the first and only exported component of the scene.
 // If so, we can preload the scene's required chunks in parallel with the scene itself.
+
 export enum Scene {
     Error404 = '404',
+    ErrorAccessDenied = 'AccessDenied',
     ErrorNetwork = '4xx',
     ErrorProjectUnavailable = 'ProjectUnavailable',
+    ErrorTracking = 'ErrorTracking',
+    ErrorTrackingIssue = 'ErrorTrackingIssue',
+    ErrorTrackingConfiguration = 'ErrorTrackingConfiguration',
     Dashboards = 'Dashboards',
     Dashboard = 'Dashboard',
     Insight = 'Insight',
-    InsightRouter = 'InsightRouter',
-    Cohorts = 'Cohorts',
-    Events = 'Events',
-    EventStats = 'EventsVolumeTable',
-    EventPropertyStats = 'PropertiesVolumeTable',
-    SessionRecordings = 'SessionsRecordings',
+    WebAnalytics = 'WebAnalytics',
+    WebAnalyticsWebVitals = 'WebAnalyticsWebVitals',
+    WebAnalyticsMarketing = 'WebAnalyticsMarketing',
+    WebAnalyticsPageReports = 'WebAnalyticsPageReports',
+    RevenueAnalytics = 'RevenueAnalytics',
+    Cohort = 'Cohort',
+    Activity = 'Activity',
+    DataManagement = 'DataManagement',
+    EventDefinition = 'EventDefinition',
+    EventDefinitionEdit = 'EventDefinitionEdit',
+    PropertyDefinition = 'PropertyDefinition',
+    PropertyDefinitionEdit = 'PropertyDefinitionEdit',
+    Replay = 'Replay',
+    ReplaySingle = 'ReplaySingle',
+    ReplayPlaylist = 'ReplayPlaylist',
+    ReplayFilePlayback = 'ReplayFilePlayback',
+    ReplaySettings = 'ReplaySettings',
+    CustomCss = 'CustomCss',
+    PersonsManagement = 'PersonsManagement',
     Person = 'Person',
-    Persons = 'Persons',
+    PipelineNodeNew = 'PipelineNodeNew',
+    Pipeline = 'Pipeline',
+    PipelineNode = 'PipelineNode',
     Groups = 'Groups',
     Group = 'Group',
     Action = 'Action',
-    Actions = 'ActionsTable',
+    EarlyAccessFeatures = 'EarlyAccessFeatures',
     Experiments = 'Experiments',
+    ExperimentsSharedMetrics = 'ExperimentsSharedMetrics',
+    ExperimentsSharedMetric = 'ExperimentsSharedMetric',
     Experiment = 'Experiment',
     FeatureFlags = 'FeatureFlags',
     FeatureFlag = 'FeatureFlag',
-    OrganizationSettings = 'OrganizationSettings',
+    Surveys = 'Surveys',
+    Survey = 'Survey',
+    SurveyTemplates = 'SurveyTemplates',
+    SQLEditor = 'SQLEditor',
+    DataWarehouseRedirect = 'DataWarehouseRedirect',
     OrganizationCreateFirst = 'OrganizationCreate',
-    ProjectSettings = 'ProjectSettings',
+    ProjectHomepage = 'ProjectHomepage',
+    Max = 'Max',
     ProjectCreateFirst = 'ProjectCreate',
     SystemStatus = 'SystemStatus',
-    Licenses = 'Licenses',
-    MySettings = 'MySettings',
-    Annotations = 'Annotations',
+    AsyncMigrations = 'AsyncMigrations',
+    DeadLetterQueue = 'DeadLetterQueue',
     Billing = 'Billing',
-    BillingSubscribed = 'BillingSubscribed',
-    Plugins = 'Plugins',
+    BillingSection = 'BillingSection',
+    BillingAuthorizationStatus = 'BillingAuthorizationStatus',
     SavedInsights = 'SavedInsights',
-    // Authentication & onboarding routes
+    ToolbarLaunch = 'ToolbarLaunch',
+    Site = 'Site',
+    IntegrationsRedirect = 'IntegrationsRedirect',
+    // Authentication, onboarding & initialization routes
     Login = 'Login',
+    Login2FA = 'Login2FA',
     Signup = 'Signup',
     InviteSignup = 'InviteSignup',
     PasswordReset = 'PasswordReset',
     PasswordResetComplete = 'PasswordResetComplete',
     PreflightCheck = 'PreflightCheck',
-    Ingestion = 'IngestionWizard',
-    OnboardingSetup = 'OnboardingSetup',
-    Personalization = 'Personalization',
+    OrganizationCreationConfirm = 'OrganizationCreationConfirm',
+    Unsubscribe = 'Unsubscribe',
+    DebugQuery = 'DebugQuery',
+    DebugHog = 'DebugHog',
+    VerifyEmail = 'VerifyEmail',
+    Notebooks = 'Notebooks',
+    Notebook = 'Notebook',
+    Canvas = 'Canvas',
+    Products = 'Products',
+    Onboarding = 'Onboarding',
+    Settings = 'Settings',
+    MoveToPostHogCloud = 'MoveToPostHogCloud',
+    Heatmaps = 'Heatmaps',
+    Links = 'Links',
+    Link = 'Link',
+    SessionAttributionExplorer = 'SessionAttributionExplorer',
+    MessagingCampaigns = 'MessagingCampaigns',
+    MessagingProviders = 'MessagingProviders',
+    MessagingBroadcasts = 'MessagingBroadcasts',
+    MessagingLibrary = 'MessagingLibrary',
+    Wizard = 'Wizard',
+    StartupProgram = 'StartupProgram',
+    HogFunction = 'HogFunction',
+    DataPipelines = 'DataPipelines',
+    DataPipelinesNew = 'DataPipelinesNew',
+    UserInterviews = 'UserInterviews',
+    UserInterview = 'UserInterview',
+    Game368 = 'Game368',
 }
 
 export type SceneProps = Record<string, any>
@@ -65,7 +122,7 @@ export interface SceneExport {
 }
 
 export interface LoadedScene extends SceneExport {
-    name: string
+    id: string
     sceneParams: SceneParams
 }
 
@@ -86,16 +143,49 @@ export interface SceneConfig {
     onlyUnauthenticated?: boolean
     /** Route **can** be accessed when logged out (i.e. can be accessed when logged in too; should be added to posthog/urls.py too) */
     allowUnauthenticated?: boolean
-    /** Hides most navigation UI, like the sidebar and breadcrumbs. */
-    plain?: boolean
-    /** Hides demo project warnings (DemoWarning.tsx) */
-    hideDemoWarnings?: boolean
+    /**
+     * If `app`, navigation is shown, and the scene has default padding.
+     * If `app-raw`, navigation is shown, but the scene has no padding.
+     * If `app-container`, navigation is shown, and the scene is centered with a max width.
+     * If `plain`, there's no navigation present, and the scene has no padding.
+     * @default 'app'
+     */
+    layout?: 'app' | 'app-raw' | 'app-container' | 'app-raw-no-header' | 'plain'
+    /** Hides project notice (ProjectNotice.tsx). */
+    hideProjectNotice?: boolean
+    /** Hides billing notice (BillingAlertsV2.tsx). */
+    hideBillingNotice?: boolean
     /** Personal account management (used e.g. by breadcrumbs) */
     personal?: boolean
     /** Instance management (used e.g. by breadcrumbs) */
     instanceLevel?: boolean
     /** Route requires organization access (used e.g. by breadcrumbs) */
     organizationBased?: boolean
-    /** Route requires project access (used e.g. by breadcrumbs). `true` implies `organizationBased` */
+    /** Route requires project access (used e.g. by breadcrumbs). `true` implies also `organizationBased` */
     projectBased?: boolean
+    /** Set the scope of the activity (affects activity and discussion panel) */
+    activityScope?: ActivityScope | string
+    /** Default docs path - what the docs side panel will open by default if this scene is active  */
+    defaultDocsPath?: string
+    /** Component import, used only in manifests */
+    import?: () => Promise<any>
+}
+
+// Map scenes to their access control resource types
+export const sceneToAccessControlResourceType: Partial<Record<Scene, AccessControlResourceType>> = {
+    // Feature flags
+    [Scene.FeatureFlag]: AccessControlResourceType.FeatureFlag,
+    [Scene.FeatureFlags]: AccessControlResourceType.FeatureFlag,
+
+    // Dashboards
+    [Scene.Dashboard]: AccessControlResourceType.Dashboard,
+    [Scene.Dashboards]: AccessControlResourceType.Dashboard,
+
+    // Insights
+    [Scene.Insight]: AccessControlResourceType.Insight,
+    [Scene.SavedInsights]: AccessControlResourceType.Insight,
+
+    // Notebooks
+    [Scene.Notebook]: AccessControlResourceType.Notebook,
+    [Scene.Notebooks]: AccessControlResourceType.Notebook,
 }

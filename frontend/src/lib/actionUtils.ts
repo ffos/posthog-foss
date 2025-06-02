@@ -1,14 +1,47 @@
-import { ElementType } from '~/types'
 import { cssEscape } from 'lib/utils/cssEscape'
 
+import { ElementType } from '~/types'
+
 // these plus any element with cursor:pointer will be click targets
-export const CLICK_TARGETS = ['a', 'button', 'input', 'select', 'textarea', 'label']
+export const CLICK_TARGETS = ['a', 'button', 'input', 'select', 'textarea']
+export const EXPERIMENT_TARGETS = [
+    'label',
+    'h1',
+    'h2',
+    'h3',
+    'h4',
+    'h5',
+    'h6',
+    'span',
+    'img',
+    'caption',
+    'code',
+    'dd',
+    'del',
+    'details',
+    'dfn',
+    'footer',
+    'header',
+    'ol',
+    'small',
+    'summary',
+    'table',
+    'tbody',
+    'td',
+    'th',
+    'thead',
+    'tr',
+    'tt',
+    'u',
+    'ul',
+]
 export const CLICK_TARGET_SELECTOR = CLICK_TARGETS.join(', ')
+export const EXPERIMENT_TARGET_SELECTOR = CLICK_TARGETS.concat(EXPERIMENT_TARGETS).join(', ')
 
 // always ignore the following
 export const TAGS_TO_IGNORE = ['html', 'body', 'meta', 'head', 'script', 'link', 'style']
 
-export const escapeRegex = (str: string): string => str.replace(/([.*+?^=!:${}()|\[\]\/\\])/g, '\\$1')
+export const escapeRegex = (str: string): string => str.replace(/([.*+?^=!:${}()|[\]/\\])/g, '\\$1')
 
 export function matchesDataAttribute(element: ElementType, dataAttributes: string[]): string | void {
     if (!element.attributes) {
@@ -31,7 +64,7 @@ export function elementToSelector(element: ElementType, dataAttributes: string[]
         return selector
     }
     if (element.attr_id) {
-        selector += `#${cssEscape(element.attr_id)}`
+        selector += `[id="${cssEscape(element.attr_id)}"]`
         return selector
     }
     if (element.tag_name) {

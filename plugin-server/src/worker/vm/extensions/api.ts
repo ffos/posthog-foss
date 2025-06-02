@@ -1,6 +1,5 @@
-import fetch, { Headers, Response } from 'node-fetch'
-
 import { Hub, PluginConfig } from '../../../types'
+import { legacyFetch, Response } from '../../../utils/request'
 
 const DEFAULT_API_HOST = 'https://app.posthog.com'
 
@@ -16,6 +15,7 @@ export interface ApiExtension {
     get(path: string, options?: ApiMethodOptions): Promise<Response>
     post(path: string, options?: ApiMethodOptions): Promise<Response>
     put(path: string, options?: ApiMethodOptions): Promise<Response>
+    patch(path: string, options?: ApiMethodOptions): Promise<Response>
     delete(path: string, options?: ApiMethodOptions): Promise<Response>
 }
 
@@ -23,6 +23,7 @@ enum ApiMethod {
     Get = 'GET',
     Post = 'POST',
     Put = 'PUT',
+    Patch = 'PATCH',
     Delete = 'DELETE',
 }
 
@@ -36,7 +37,7 @@ export function createApi(server: Hub, pluginConfig: PluginConfig): ApiExtension
             throw new Error('You must specify a personalApiKey if you specify a projectApiKey and vice-versa!')
         }
 
-        let host = options.host ?? DEFAULT_API_HOST
+        let host = options.host ?? process.env.SITE_URL ?? DEFAULT_API_HOST
 
         if (path.startsWith('/')) {
             path = path.slice(1)
@@ -51,7 +52,7 @@ export function createApi(server: Hub, pluginConfig: PluginConfig): ApiExtension
         if (options.projectApiKey) {
             tokenParam.token = options.projectApiKey
         } else {
-            const team = await server.teamManager.fetchTeam(pluginConfig.team_id)
+            const team = await server.teamManager.getTeam(pluginConfig.team_id)
             if (!team) {
                 throw new Error('Unable to determine project')
             }
@@ -65,22 +66,21 @@ export function createApi(server: Hub, pluginConfig: PluginConfig): ApiExtension
                 ? { ...options.data, ...tokenParam }
                 : tokenParam
         )
-        const url = `${host}/${path}${path.includes('?') ? '&' : '?'}${urlParams.toString()}`
+        const url = `${host}/${path.replace('@current', pluginConfig.team_id.toString())}${
+            path.includes('?') ? '&' : '?'
+        }${urlParams.toString()}`
+
         const headers = {
             Authorization: `Bearer ${apiKey}`,
-            ...(method === ApiMethod.Post ? { 'Content-Type': 'application/json' } : {}),
+            ...(method === ApiMethod.Post || method === ApiMethod.Patch ? { 'Content-Type': 'application/json' } : {}),
             ...options.headers,
-        }
+        } as any
 
         if (method === ApiMethod.Delete || method === ApiMethod.Get) {
-            return await fetch(url, { headers, method })
+            return await legacyFetch(url, { headers, method })
         }
 
-        return await fetch(url, {
-            headers,
-            method,
-            body: JSON.stringify(options.data || {}),
-        })
+        return await legacyFetch(url, { headers, method, body: JSON.stringify(options.data || {}) })
     }
 
     return {
@@ -92,6 +92,9 @@ export function createApi(server: Hub, pluginConfig: PluginConfig): ApiExtension
         },
         put: async (path, options) => {
             return await sendRequest(path, ApiMethod.Put, options)
+        },
+        patch: async (path, options) => {
+            return await sendRequest(path, ApiMethod.Patch, options)
         },
         delete: async (path, options) => {
             return await sendRequest(path, ApiMethod.Delete, options)

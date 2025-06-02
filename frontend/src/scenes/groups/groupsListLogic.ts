@@ -1,87 +1,79 @@
-import { kea } from 'kea'
-import api from 'lib/api'
+import { actions, afterMount, connect, kea, key, listeners, path, props, reducers } from 'kea'
 import { groupsAccessLogic } from 'lib/introductions/groupsAccessLogic'
-import { capitalizeFirstLetter } from 'lib/utils'
 import { teamLogic } from 'scenes/teamLogic'
-import { urls } from 'scenes/urls'
-import { groupsModel } from '~/models/groupsModel'
-import { Breadcrumb, Group } from '~/types'
-import { groupsListLogicType } from './groupsListLogicType'
 
-interface GroupsPaginatedResponse {
-    next: string | null
-    previous: string | null
-    results: Group[]
+import { groupsModel } from '~/models/groupsModel'
+import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
+import { NodeKind } from '~/queries/schema/schema-general'
+import { DataTableNode } from '~/queries/schema/schema-general'
+import { GroupTypeIndex } from '~/types'
+
+import type { groupsListLogicType } from './groupsListLogicType'
+
+export interface GroupsListLogicProps {
+    groupTypeIndex: GroupTypeIndex
 }
 
-export const groupsListLogic = kea<groupsListLogicType<GroupsPaginatedResponse>>({
-    path: ['groups', 'groupsListLogic'],
-    connect: {
-        values: [teamLogic, ['currentTeamId'], groupsModel, ['groupTypes'], groupsAccessLogic, ['groupsEnabled']],
-    },
-    actions: () => ({
-        loadGroups: (url?: string | null) => ({ url }),
-        setTab: (tab: string) => ({ tab }),
-    }),
-    loaders: ({ values }) => ({
-        groups: [
-            { next: null, previous: null, results: [] } as GroupsPaginatedResponse,
+export const groupsListLogic = kea<groupsListLogicType>([
+    props({} as GroupsListLogicProps),
+    key((props: GroupsListLogicProps) => props.groupTypeIndex),
+    path(['groups', 'groupsListLogic']),
+    connect(() => ({
+        values: [
+            teamLogic,
+            ['currentTeamId'],
+            groupsModel,
+            ['groupTypes', 'aggregationLabel'],
+            groupsAccessLogic,
+            ['groupsEnabled'],
+        ],
+    })),
+    actions(() => ({
+        setQuery: (query: DataTableNode) => ({ query }),
+        setQueryWasModified: (queryWasModified: boolean) => ({ queryWasModified }),
+    })),
+    reducers({
+        query: [
+            (_: any, props: GroupsListLogicProps) =>
+                ({
+                    kind: NodeKind.DataTableNode,
+                    source: {
+                        kind: NodeKind.GroupsQuery,
+                        select: undefined,
+                        group_type_index: props.groupTypeIndex,
+                    },
+                    full: true,
+                    showEventFilter: false,
+                    showPersistentColumnConfigurator: true,
+                    propertiesViaUrl: true,
+                } as DataTableNode),
+            { setQuery: (_, { query }) => query },
+        ],
+        queryWasModified: [
+            false,
             {
-                loadGroups: async ({ url }) => {
-                    if (values.groupsEnabled) {
-                        url =
-                            url || `api/projects/${values.currentTeamId}/groups/?group_type_index=${values.currentTab}`
-                        return await api.get(url)
-                    }
-                },
+                setQueryWasModified: (_, { queryWasModified }) => queryWasModified,
             },
         ],
     }),
-    reducers: {
-        currentTab: [
-            '-1',
-            {
-                setTab: (_, { tab }) => tab,
-            },
-        ],
-    },
-    selectors: {
-        currentTabName: [
-            (s) => [s.currentTab, s.groupTypes],
-            (currentTab, groupTypes): string =>
-                currentTab === '-1'
-                    ? 'Persons'
-                    : groupTypes?.length
-                    ? capitalizeFirstLetter(groupTypes[parseInt(currentTab)].group_type)
-                    : '',
-        ],
-        breadcrumbs: [
-            (s) => [s.currentTabName, s.currentTab],
-            (currentTabName, currentTab): Breadcrumb[] => [
-                {
-                    name: currentTabName,
-                    path: urls.groups(currentTab),
+    listeners(({ actions }) => ({
+        setQuery: () => {
+            actions.setQueryWasModified(true)
+        },
+    })),
+    afterMount(({ actions, values }) => {
+        if (values.query.source.kind === NodeKind.GroupsQuery && values.query.source.select === undefined) {
+            const defaultColumns = values.groupTypes.get(
+                values.query.source.group_type_index as GroupTypeIndex
+            )?.default_columns
+            actions.setQuery({
+                ...values.query,
+                source: {
+                    ...values.query.source,
+                    select: defaultColumns ?? defaultDataTableColumns(NodeKind.GroupsQuery),
                 },
-            ],
-        ],
-    },
-    actionToUrl: () => ({
-        setTab: ({ tab }) => {
-            if (tab !== '-1') {
-                return urls.groups(tab)
-            }
-            return urls.persons()
-        },
+            })
+            actions.setQueryWasModified(false)
+        }
     }),
-    urlToAction: ({ actions }) => ({
-        '/groups/:id': ({ id }) => {
-            if (id) {
-                actions.setTab(id)
-                actions.loadGroups()
-            }
-        },
-        '/persons': () => {
-            actions.setTab('-1')
-        },
-    }),
-})
+])

@@ -1,12 +1,29 @@
 #!/bin/bash
+
 set -e
 
-trap "trap - SIGTERM && kill -- -$$" SIGINT SIGTERM EXIT
+export DEBUG=${DEBUG:-1}
+export SKIP_SERVICE_VERSION_REQUIREMENTS=${SKIP_SERVICE_VERSION_REQUIREMENTS:-1}
+export BILLING_SERVICE_URL=${BILLING_SERVICE_URL:-https://billing.dev.posthog.dev}
+export HOG_HOOK_URL=${HOG_HOOK_URL:-http://localhost:3300/hoghook}
+export API_QUERIES_PER_TEAM='{"1": 100}'
 
-export DEBUG=1
+if [ -f .env ]; then
+    set -o allexport
+    source .env
+    set +o allexport
+fi
 
-./bin/start-worker &
-./bin/start-backend &
-./bin/start-frontend &
+./bin/download-mmdb
 
-wait
+if ! command -v mprocs &>/dev/null; then
+    if command -v brew &>/dev/null; then
+        echo "🔁 Installing mprocs via Homebrew..."
+        brew install mprocs
+    else
+        echo "👉 To run bin/start, install mprocs: https://github.com/pvolok/mprocs#installation"
+        exit 1
+    fi
+fi
+
+exec mprocs --config bin/mprocs.yaml

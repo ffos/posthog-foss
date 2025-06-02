@@ -5,56 +5,29 @@ labels: sprint
 title: Sprint 1.n.0 m/2 - Jan 1 to Jan 12
 ---
 
-# Global Sprint Planning
+# Sprint Planning
 
-## Retro: Status of Outcomes from Previous Sprint
+# List of incidents + any action items that haven't been scheduled yet
 
-1.
-2.
-3.
-4.
-5.
-
-## Retro: What can we do better next sprint?
-
-1.
-2.
-3.
-4.
-5.
-
-## Plan: Proposed Goals for Next Sprint 
-
-Each goal should have a single owner. Owner can only be an engineer.
-
-1.
-2.
-3.
-4.
-5.
+- 
 
 # Team sprint planning
 
 For your team sprint planning copy this template into a comment below for each team.
 
 ```
-Team ___
+# Team ___
+
+**Support hero:** ___
+
+## OKR
+
+1. OKR, status (red/yellow/green) and action points if yellow/red
 
 ## Retro
 
-<!-- Talk about what went well, what didn't go well and any actions to improve next time -->
-
+<!-- Grab the high and low priority items from last time and add whether that item was completed or not -->
 - 
-
-## Hang over items from previous sprint
-
-<!-- For each item, decide to re-prioritise (and add below) or deprioritise -->
-
-- Item 1. prioritised/deprioritise
-
-## Planning
-
-<!-- Each item should have a single owner. Owner can only be an engineer. -->
 
 ### High priority
 

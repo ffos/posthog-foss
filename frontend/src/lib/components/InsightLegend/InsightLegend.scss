@@ -1,43 +1,21 @@
-@import '~/vars';
-
-.insight-legend-button {
-    display: flex;
-    align-items: center;
-
-    .insight-legend-button-title {
-        margin-left: $default_spacing / 2;
-        font-size: 14px;
-        font-weight: 500;
-    }
-}
-
-.insight-legend-menu {
-    padding: $default_spacing !important;
-    box-shadow: none !important;
-    border: 1px solid $border;
-    background-color: $bg_light;
-    border-radius: $radius;
-    max-width: 300px;
-    width: 100%;
+.InsightLegendMenu {
     max-height: 100%;
-    overflow-y: auto;
-    overflow-x: hidden;
-    display: flex;
-    flex-direction: column;
+    background-color: var(--bg-surface-primary);
+    box-shadow: none !important;
 
-    .insight-legend-menu-scroll {
-        .insight-legend-menu-item {
+    &.InsightLegendMenu--in-card-view {
+        max-width: 40%;
+    }
+
+    &.InsightLegendMenu--horizontal {
+        max-width: 100%;
+
+        .InsightLegendMenu-scroll {
             display: flex;
-            align-items: center;
-            width: 100%;
+            flex-wrap: wrap;
 
-            &:not(:last-child) {
-                margin-bottom: $default_spacing / 2;
-            }
-
-            .insights-label {
-                margin-left: $default_spacing / 2;
-                width: 100%;
+            .InsightLegendMenu-item {
+                width: auto;
             }
         }
     }

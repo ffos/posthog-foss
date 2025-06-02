@@ -1,19 +1,16 @@
-import datetime
-import hashlib
-from typing import List
-from unittest.mock import patch
-
-import pytz
-from django.conf import settings
 from django.core import mail
 from django.core.exceptions import ImproperlyConfigured
 from django.utils import timezone
 from freezegun import freeze_time
+from unittest.mock import patch, MagicMock
+from decimal import Decimal
 
-from posthog.email import EmailMessage, _send_email
-from posthog.models import Event, MessagingRecord, Organization, Person, Team, User
-from posthog.tasks.email import send_weekly_email_reports
+from posthog.email import EmailMessage, _send_email, sanitize_email_properties
+from posthog.models import MessagingRecord, Organization, Person, Team, User
+from posthog.models.instance_setting import override_instance_config
 from posthog.test.base import BaseTest
+from posthog.email import CUSTOMER_IO_TEMPLATE_ID_MAP
+from django.conf import settings
 
 
 class TestEmail(BaseTest):
@@ -40,151 +37,230 @@ class TestEmail(BaseTest):
             defaults={"sent_at": timezone.now()},
         )  # This user should not get the emails
 
-        last_week = datetime.datetime(2020, 9, 17, 3, 22, tzinfo=pytz.UTC)
-        two_weeks_ago = datetime.datetime(2020, 9, 8, 19, 54, tzinfo=pytz.UTC)
-
-        self.persons: List = [self.create_person(self.team, str(i)) for i in range(0, 7)]
-
-        # Resurrected
-        self.persons[0].created_at = timezone.now() - datetime.timedelta(weeks=3)
-        self.persons[0].save()
-        self.persons[1].created_at = timezone.now() - datetime.timedelta(weeks=4)
-        self.persons[1].save()
-        Event.objects.create(team=self.team, timestamp=last_week, distinct_id=0)
-        Event.objects.create(team=self.team, timestamp=last_week, distinct_id=1)
-
-        # Retained
-        Event.objects.create(team=self.team, timestamp=last_week, distinct_id=2)
-        Event.objects.create(team=self.team, timestamp=two_weeks_ago, distinct_id=2)
-        Event.objects.create(team=self.team, timestamp=last_week, distinct_id=3)
-        Event.objects.create(team=self.team, timestamp=two_weeks_ago, distinct_id=3)
-        Event.objects.create(team=self.team, timestamp=last_week, distinct_id=4)
-        Event.objects.create(team=self.team, timestamp=two_weeks_ago, distinct_id=4)
-
-        # New
-        Event.objects.create(team=self.team, timestamp=last_week, distinct_id=5)
-        Event.objects.create(team=self.team, timestamp=last_week, distinct_id=5)
-
-        # Churned
-        Event.objects.create(team=self.team, timestamp=two_weeks_ago, distinct_id=6)
-
     def test_cant_send_emails_if_not_properly_configured(self) -> None:
-        with self.settings(EMAIL_HOST=None):
+        with override_instance_config("EMAIL_HOST", None):
             with self.assertRaises(ImproperlyConfigured) as e:
-                EmailMessage("test_campaign", "Subject", "template")
-            self.assertEqual(
-                str(e.exception), "Email is not enabled in this instance.",
-            )
+                EmailMessage(campaign_key="test_campaign", subject="Subject", template_name="template")
+            self.assertEqual(str(e.exception), "Email is not enabled in this instance.")
 
-        with self.settings(EMAIL_ENABLED=False):
+        with override_instance_config("EMAIL_ENABLED", False):
             with self.assertRaises(ImproperlyConfigured) as e:
-                EmailMessage("test_campaign", "Subject", "template")
-            self.assertEqual(
-                str(e.exception), "Email is not enabled in this instance.",
-            )
+                EmailMessage(campaign_key="test_campaign", subject="Subject", template_name="template")
+            self.assertEqual(str(e.exception), "Email is not enabled in this instance.")
 
     def test_cant_send_same_campaign_twice(self) -> None:
-        sent_at = timezone.now()
+        with override_instance_config("EMAIL_HOST", "localhost"):
+            sent_at = timezone.now()
 
-        record, _ = MessagingRecord.objects.get_or_create(raw_email="test0@posthog.com", campaign_key="campaign_1")
-        record.sent_at = sent_at
-        record.save()
+            record, _ = MessagingRecord.objects.get_or_create(raw_email="test0@posthog.com", campaign_key="campaign_1")
+            record.sent_at = sent_at
+            record.save()
 
-        with self.settings(
-            EMAIL_HOST="localhost", CELERY_TASK_ALWAYS_EAGER=True,
-        ):
+            with self.settings(CELERY_TASK_ALWAYS_EAGER=True):
+                _send_email(
+                    campaign_key="campaign_1",
+                    to=[
+                        {
+                            "raw_email": "test0@posthog.com",
+                            "recipient": "Test PostHog <test0@posthog.com>",
+                        }
+                    ],
+                    subject="Test email",
+                    headers={},
+                )
 
-            _send_email(
-                campaign_key="campaign_1",
-                to=[{"raw_email": "test0@posthog.com", "recipient": "Test Posthog <test0@posthog.com>"}],
-                subject="Test email",
-                headers={},
+            self.assertEqual(len(mail.outbox), 0)
+
+            record.refresh_from_db()
+            self.assertEqual(record.sent_at, sent_at)
+
+    def test_applies_default_utm_tags(self) -> None:
+        with override_instance_config("EMAIL_HOST", "localhost"):
+            template = "async_migration_error"
+            message = EmailMessage(campaign_key="test_campaign", subject="Subject", template_name=template)
+
+            assert (
+                f"https://posthog.com/questions?utm_source=posthog&amp;utm_medium=email&amp;utm_campaign={template}"
+                in message.html_body
             )
 
-        self.assertEqual(len(mail.outbox), 0)
+    @patch("requests.post")
+    def test_send_via_http_success(self, mock_post) -> None:
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_post.return_value = mock_response
 
-        record.refresh_from_db()
-        self.assertEqual(record.sent_at, sent_at)
-
-    @freeze_time("2020-09-21")
-    def test_weekly_email_report(self) -> None:
-
-        record_count: int = MessagingRecord.objects.count()
-
-        expected_recipients: List[str] = ["test@posthog.com", "test2@posthog.com"]
-
-        with self.settings(
-            EMAIL_HOST="localhost", SITE_URL="http://localhost:9999", CELERY_TASK_ALWAYS_EAGER=True,
-        ):
-            send_weekly_email_reports()
-
-        self.assertSetEqual({",".join(outmail.to) for outmail in mail.outbox}, set(expected_recipients))
-
-        self.assertEqual(
-            mail.outbox[0].subject, "PostHog weekly report for Sep 14, 2020 to Sep 20",
-        )
-
-        self.assertEqual(
-            mail.outbox[0].body, "",
-        )  # no plain-text version support yet
-
-        html_message = mail.outbox[0].alternatives[0][0]  # type: ignore
-        self.validate_basic_html(
-            html_message,
-            "http://localhost:9999",
-            preheader="Your PostHog weekly report is ready! Your team had 6 active users last week! &#127881;",
-        )
-
-        # Ensure records are properly saved to prevent duplicate emails
-        self.assertEqual(MessagingRecord.objects.count(), record_count + 2)
-        for email in expected_recipients:
-            email_hash = hashlib.sha256(f"{settings.SECRET_KEY}_{email}".encode()).hexdigest()
-            record = MessagingRecord.objects.get(
-                email_hash=email_hash, campaign_key=f"weekly_report_for_team_{self.team.pk}_on_2020-09-14",
+        with override_instance_config("EMAIL_HOST", "localhost"), self.settings(CUSTOMER_IO_API_KEY="test-key"):
+            message = EmailMessage(
+                campaign_key="test_campaign", subject="Test subject", template_name="2fa_enabled", use_http=True
             )
-            self.assertTrue((timezone.now() - record.sent_at).total_seconds() < 5)
+            message.add_recipient("test@posthog.com", "Test User")
+            message.send(send_async=False)
 
-    @patch("posthog.tasks.email.EmailMessage")
-    @freeze_time("2020-09-21")
-    def test_weekly_email_report_content(self, mock_email_message):
+            mock_post.assert_called_once_with(
+                f"{settings.CUSTOMER_IO_API_URL}/v1/send/email",
+                headers={
+                    "Authorization": "Bearer test-key",
+                    "Content-Type": "application/json",
+                },
+                json={
+                    "to": "test@posthog.com",
+                    "identifiers": {"email": "test@posthog.com"},
+                    "transactional_message_id": CUSTOMER_IO_TEMPLATE_ID_MAP["2fa_enabled"],
+                    "message_data": {"utm_tags": "utm_source=posthog&utm_medium=email&utm_campaign=2fa_enabled"},
+                },
+            )
 
-        with self.settings(
-            EMAIL_HOST="localhost", CELERY_TASK_ALWAYS_EAGER=True,
-        ):
-            send_weekly_email_reports()
+    @patch("requests.post")
+    def test_send_via_http_handles_decimal_values(self, mock_post) -> None:
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_post.return_value = mock_response
 
-        self.assertEqual(
-            mock_email_message.call_args[1]["campaign_key"], f"weekly_report_for_team_{self.team.pk}_on_2020-09-14",
-        )  # Campaign key
-        self.assertEqual(
-            mock_email_message.call_args[1]["subject"], "PostHog weekly report for Sep 14, 2020 to Sep 20",
-        )  # Email subject
-        self.assertEqual(mock_email_message.call_args[1]["template_name"], "weekly_report")
+        with override_instance_config("EMAIL_HOST", "localhost"), self.settings(CUSTOMER_IO_API_KEY="test-key"):
+            message = EmailMessage(
+                campaign_key="test_campaign",
+                subject="Test subject",
+                template_name="2fa_enabled",
+                template_context={"decimal_value": Decimal("1.23")},
+                use_http=True,
+            )
+            message.add_recipient("test@posthog.com")
+            message.send(send_async=False)
 
-        template_context = mock_email_message.call_args[1]["template_context"]
+            mock_post.assert_called_once_with(
+                f"{settings.CUSTOMER_IO_API_URL}/v1/send/email",
+                headers={
+                    "Authorization": "Bearer test-key",
+                    "Content-Type": "application/json",
+                },
+                json={
+                    "to": "test@posthog.com",
+                    "identifiers": {"email": "test@posthog.com"},
+                    "transactional_message_id": CUSTOMER_IO_TEMPLATE_ID_MAP["2fa_enabled"],
+                    "message_data": {
+                        "decimal_value": 1.23,
+                        "utm_tags": "utm_source=posthog&utm_medium=email&utm_campaign=2fa_enabled",
+                    },
+                },
+            )
 
-        self.assertEqual(template_context["team"], "The Bakery")
+    @patch("requests.post")
+    def test_send_via_http_api_error(self, mock_post) -> None:
+        mock_response = MagicMock()
+        mock_response.status_code = 400
+        mock_response.text = "Bad Request"
+        mock_post.return_value = mock_response
+
+        with override_instance_config("EMAIL_HOST", "localhost"), self.settings(CUSTOMER_IO_API_KEY="test-key"):
+            message = EmailMessage(
+                campaign_key="test_campaign", subject="Test subject", template_name="2fa_enabled", use_http=True
+            )
+            message.add_recipient("test@posthog.com")
+
+            # The error should be caught and logged, not raised
+            message.send(send_async=False)
+
+            # Verify the message wasn't marked as sent
+            record = MessagingRecord.objects.filter(campaign_key="test_campaign").first()
+            self.assertIsNone(record)
+
+    def test_sanitize_email_properties(self) -> None:
+        # Test with various types of input including potential HTML injection
+        properties = {
+            "name": 'Test User"><img src=1 onerror=alert(1)>',
+            "project_name": '<script>alert("XSS")</script>',
+            "nested": {
+                "html_content": '<b>Bold text</b><img src="x" onerror="javascript:alert(1)">',
+                "safe_number": 123,
+            },
+            "list_with_html": ["normal text", "<script>bad()</script>", 42],
+            "decimal_value": Decimal("1.23"),
+            "boolean_value": True,
+            "none_value": None,
+            "utm_tags": "utm_source=posthog&utm_medium=email&utm_campaign=test",
+        }
+
+        sanitized = sanitize_email_properties(properties)
+
+        # Check that strings are properly escaped
+        self.assertEqual(sanitized["name"], "Test User&quot;&gt;&lt;img src=1 onerror=alert(1)&gt;")
+        self.assertEqual(sanitized["project_name"], "&lt;script&gt;alert(&quot;XSS&quot;)&lt;/script&gt;")
+
+        # Check that nested dictionaries are sanitized
         self.assertEqual(
-            template_context["period_start"], datetime.datetime(2020, 9, 14, tzinfo=pytz.UTC),
+            sanitized["nested"]["html_content"],
+            "&lt;b&gt;Bold text&lt;/b&gt;&lt;img src=&quot;x&quot; onerror=&quot;javascript:alert(1)&quot;&gt;",
         )
-        self.assertEqual(
-            template_context["period_end"], datetime.datetime(2020, 9, 20, 23, 59, 59, 999999, tzinfo=pytz.UTC),
-        )
-        self.assertEqual(
-            template_context["active_users"], 6,
-        )
-        self.assertEqual(
-            template_context["active_users_delta"], 0.5,
-        )
-        self.assertEqual(
-            round(template_context["user_distribution"]["new"], 2), 0.17,
-        )
-        self.assertEqual(
-            template_context["user_distribution"]["retained"], 0.5,
-        )
-        self.assertEqual(
-            round(template_context["user_distribution"]["resurrected"], 2), 0.33,
-        )
-        self.assertEqual(
-            template_context["churned_users"], {"abs": 1, "ratio": 0.25, "delta": None},
-        )
+
+        # Check that numbers and booleans are preserved
+        self.assertEqual(sanitized["nested"]["safe_number"], 123)
+        self.assertEqual(sanitized["decimal_value"], 1.23)
+        self.assertEqual(sanitized["boolean_value"], True)
+        self.assertEqual(sanitized["none_value"], None)
+
+        # Check that lists are sanitized
+        self.assertEqual(sanitized["list_with_html"][0], "normal text")
+        self.assertEqual(sanitized["list_with_html"][1], "&lt;script&gt;bad()&lt;/script&gt;")
+        self.assertEqual(sanitized["list_with_html"][2], 42)
+
+        # Check that utm_tags are not sanitized (to preserve valid URL query parameters)
+        self.assertEqual(sanitized["utm_tags"], "utm_source=posthog&utm_medium=email&utm_campaign=test")
+
+    def test_sanitize_email_properties_raises_for_unsupported_types(self) -> None:
+        # Test that sanitize_email_properties raises TypeError for unsupported types
+        properties = {
+            "custom_object": type("CustomObject", (), {})(),  # Create a simple custom object
+        }
+
+        with self.assertRaises(TypeError) as context:
+            sanitize_email_properties(properties)
+
+        # Check that the error message contains useful information
+        self.assertIn("Unsupported type in email properties: CustomObject", str(context.exception))
+        self.assertIn("Only str, int, float, bool, NoneType, Decimal", str(context.exception))
+
+    def test_email_message_sanitizes_properties(self) -> None:
+        # Test that EmailMessage constructor properly sanitizes template_context
+        with override_instance_config("EMAIL_HOST", "localhost"):
+            template_context = {
+                "name": 'User"><img src=x onerror=alert(1)>',
+                "project_name": '<script>alert("XSS")</script>',
+                "utm_tags": "utm_source=posthog&utm_medium=email&utm_campaign=test_custom",
+            }
+
+            message = EmailMessage(
+                campaign_key="test_campaign",
+                subject="Test subject",
+                template_name="2fa_enabled",
+                template_context=template_context,
+            )
+
+            # Verify properties were sanitized
+            self.assertEqual(message.properties["name"], "User&quot;&gt;&lt;img src=x onerror=alert(1)&gt;")
+            self.assertEqual(message.properties["project_name"], "&lt;script&gt;alert(&quot;XSS&quot;)&lt;/script&gt;")
+
+            # Verify utm_tags are preserved without sanitization
+            self.assertEqual(
+                message.properties["utm_tags"], "utm_source=posthog&utm_medium=email&utm_campaign=test_custom"
+            )
+
+            # Original template_context should be used for rendering (Django templates have their own escaping)
+            self.assertIn("utm_source=posthog", message.properties["utm_tags"])
+
+    def test_add_recipient_sanitizes_name(self) -> None:
+        # Test that add_recipient properly sanitizes the name parameter
+        with override_instance_config("EMAIL_HOST", "localhost"):
+            message = EmailMessage(campaign_key="test_campaign", subject="Test subject", template_name="2fa_enabled")
+
+            # Add recipient with a malicious name containing HTML/JavaScript
+            message.add_recipient(email="test@example.com", name='Malicious"><script>alert("XSS")</script>')
+
+            # Verify the name was properly sanitized in the recipient string
+            self.assertEqual(
+                message.to[0]["recipient"],
+                '"Malicious&quot;&gt;&lt;script&gt;alert(&quot;XSS&quot;)&lt;/script&gt;" <test@example.com>',
+            )
+
+            # Raw email should remain unchanged
+            self.assertEqual(message.to[0]["raw_email"], "test@example.com")

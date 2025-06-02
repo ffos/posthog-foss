@@ -1,56 +1,65 @@
-import { kea } from 'kea'
-import api from 'lib/api'
-import { organizationLogicType } from './organizationLogicType'
+import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import { loaders } from 'kea-loaders'
+import { router } from 'kea-router'
+import api, { ApiConfig } from 'lib/api'
+import { timeSensitiveAuthenticationLogic } from 'lib/components/TimeSensitiveAuthentication/timeSensitiveAuthenticationLogic'
+import { OrganizationMembershipLevel } from 'lib/constants'
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { isUserLoggedIn } from 'lib/utils'
+import { getAppContext } from 'lib/utils/getAppContext'
+
+import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { AvailableFeature, OrganizationType } from '~/types'
-import { toast } from 'react-toastify'
+
+import type { organizationLogicType } from './organizationLogicType'
+import { urls } from './urls'
 import { userLogic } from './userLogic'
-import { getAppContext } from '../lib/utils/getAppContext'
-import { OrganizationMembershipLevel } from '../lib/constants'
 
 export type OrganizationUpdatePayload = Partial<
-    Pick<OrganizationType, 'name' | 'personalization' | 'domain_whitelist' | 'is_member_join_email_enabled'>
+    Pick<
+        OrganizationType,
+        'name' | 'logo_media_id' | 'is_member_join_email_enabled' | 'enforce_2fa' | 'is_ai_data_processing_approved'
+    >
 >
 
-export const organizationLogic = kea<organizationLogicType<OrganizationUpdatePayload>>({
-    path: ['scenes', 'organizationLogic'],
-    actions: {
-        deleteOrganization: (organization: OrganizationType) => ({ organization }),
-        deleteOrganizationSuccess: true,
+export const organizationLogic = kea<organizationLogicType>([
+    path(['scenes', 'organizationLogic']),
+    actions({
+        deleteOrganization: ({ organizationId, redirectPath }: { organizationId: string; redirectPath?: string }) => ({
+            organizationId,
+            redirectPath,
+        }),
+        deleteOrganizationSuccess: ({ redirectPath }: { redirectPath?: string }) => ({ redirectPath }),
         deleteOrganizationFailure: true,
-    },
-    reducers: {
+    }),
+    connect([userLogic]),
+    reducers({
         organizationBeingDeleted: [
-            null as OrganizationType | null,
+            null as string | null,
             {
-                deleteOrganization: (_, { organization }) => organization,
+                deleteOrganization: (_, { organizationId }) => organizationId,
                 deleteOrganizationSuccess: () => null,
                 deleteOrganizationFailure: () => null,
             },
         ],
-    },
-    selectors: {
-        hasDashboardCollaboration: [
-            (s) => [s.currentOrganization],
-            (currentOrganization) =>
-                currentOrganization?.available_features?.includes(AvailableFeature.DASHBOARD_COLLABORATION),
+        migrateAccessControlVersionLoading: [
+            false,
+            {
+                migrateAccessControlVersion: () => true,
+                migrateAccessControlVersionSuccess: () => false,
+                migrateAccessControlVersionFailure: () => false,
+            },
         ],
-        isCurrentOrganizationUnavailable: [
-            (s) => [s.currentOrganization, s.currentOrganizationLoading],
-            (currentOrganization, currentOrganizationLoading): boolean =>
-                !currentOrganization?.membership_level && !currentOrganizationLoading,
-        ],
-        isProjectCreationForbidden: [
-            (s) => [s.currentOrganization],
-            (currentOrganization) =>
-                !currentOrganization?.membership_level ||
-                currentOrganization.membership_level < OrganizationMembershipLevel.Admin,
-        ],
-    },
-    loaders: ({ values }) => ({
+    }),
+    loaders(({ values }) => ({
         currentOrganization: [
             null as OrganizationType | null,
             {
                 loadCurrentOrganization: async () => {
+                    if (!isUserLoggedIn()) {
+                        // If user is anonymous (i.e. viewing a shared dashboard logged out), don't load authenticated stuff
+                        return null
+                    }
                     try {
                         return await api.get('api/organizations/@current')
                     } catch {
@@ -62,6 +71,8 @@ export const organizationLogic = kea<organizationLogicType<OrganizationUpdatePay
                     if (!values.currentOrganization) {
                         throw new Error('Current organization has not been loaded yet.')
                     }
+                    // Check if re-authentication is required, if so, await its completion (or failure)
+                    await timeSensitiveAuthenticationLogic.findMounted()?.asyncActions.checkReauthentication()
                     const updatedOrganization = await api.update(
                         `api/organizations/${values.currentOrganization.id}`,
                         payload
@@ -70,40 +81,90 @@ export const organizationLogic = kea<organizationLogicType<OrganizationUpdatePay
                     return updatedOrganization
                 },
                 completeOnboarding: async () => await api.create('api/organizations/@current/onboarding/', {}),
+                migrateAccessControlVersion: async () => {
+                    await api.create(`api/organizations/${values.currentOrganization?.id}/migrate_access_control/`, {})
+                    window.location.reload()
+                    return values.currentOrganization // Return current organization state since the page will reload anyway
+                },
             },
         ],
+    })),
+    selectors({
+        hasTagging: [
+            () => [userLogic.selectors.hasAvailableFeature],
+            (hasAvailableFeature) => hasAvailableFeature(AvailableFeature.TAGGING),
+        ],
+        isCurrentOrganizationUnavailable: [
+            (s) => [s.currentOrganization, s.currentOrganizationLoading],
+            (currentOrganization, currentOrganizationLoading): boolean =>
+                !currentOrganization?.membership_level && !currentOrganizationLoading,
+        ],
+        projectCreationForbiddenReason: [
+            (s) => [s.currentOrganization],
+            (currentOrganization): string | null =>
+                !currentOrganization?.membership_level ||
+                currentOrganization.membership_level < OrganizationMembershipLevel.Admin
+                    ? 'You need to be an organization admin or above to create new projects.'
+                    : null,
+        ],
+        isAdminOrOwner: [
+            (s) => [s.currentOrganization],
+            (currentOrganization): boolean | null =>
+                !!(
+                    currentOrganization?.membership_level &&
+                    [OrganizationMembershipLevel.Admin, OrganizationMembershipLevel.Owner].includes(
+                        currentOrganization.membership_level
+                    )
+                ),
+        ],
     }),
-    listeners: ({ actions }) => ({
+    listeners(({ actions }) => ({
+        loadCurrentOrganizationSuccess: ({ currentOrganization }) => {
+            if (currentOrganization) {
+                ApiConfig.setCurrentOrganizationId(currentOrganization.id)
+            }
+        },
         createOrganizationSuccess: () => {
-            window.location.href = '/organization/members'
+            sidePanelStateLogic.findMounted()?.actions.closeSidePanel()
+            window.location.href = urls.products()
         },
         updateOrganizationSuccess: () => {
-            toast.success('Your configuration has been saved!')
+            lemonToast.success('Organization updated successfully!')
         },
-        deleteOrganization: async ({ organization }) => {
+        deleteOrganization: async ({ organizationId, redirectPath }) => {
             try {
-                await api.delete(`api/organizations/${organization.id}`)
-                location.reload()
-                actions.deleteOrganizationSuccess()
+                await api.delete(`api/organizations/${organizationId}`)
+                actions.deleteOrganizationSuccess({ redirectPath })
             } catch {
                 actions.deleteOrganizationFailure()
             }
         },
-        deleteOrganizationSuccess: () => {
-            toast.success('Organization has been deleted')
+        deleteOrganizationSuccess: ({ redirectPath }) => {
+            router.actions.replace(redirectPath ?? router.values.currentLocation.pathname, {
+                ...router.values.searchParams,
+                organizationDeleted: true,
+            })
+
+            lemonToast.success('Organization has been deleted', {
+                toastId: 'deleteOrganization',
+            })
+            location.reload()
         },
-    }),
-    events: ({ actions }) => ({
-        afterMount: () => {
-            const appContext = getAppContext()
-            const contextualOrganization = appContext?.current_user?.organization
-            if (contextualOrganization) {
-                // If app context is available (it should be practically always) we can immediately know currentOrganization
-                actions.loadCurrentOrganizationSuccess(contextualOrganization)
-            } else {
-                // If app context is not available, a traditional request is needed
-                actions.loadCurrentOrganization()
-            }
+        deleteOrganizationFailure: () => {
+            lemonToast.error('Error deleting organization', {
+                toastId: 'deleteOrganization',
+            })
         },
+    })),
+    afterMount(({ actions }) => {
+        const appContext = getAppContext()
+        const contextualOrganization = appContext?.current_user?.organization
+        if (contextualOrganization) {
+            // If app context is available (it should be practically always) we can immediately know currentOrganization
+            actions.loadCurrentOrganizationSuccess(contextualOrganization)
+        } else {
+            // If app context is not available, a traditional request is needed
+            actions.loadCurrentOrganization()
+        }
     }),
-})
+])

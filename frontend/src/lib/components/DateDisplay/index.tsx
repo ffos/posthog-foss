@@ -1,7 +1,8 @@
-import { dayjs } from 'lib/dayjs'
-import React from 'react'
-import { IntervalType } from '~/types'
 import './DateDisplay.scss'
+
+import { dayjs } from 'lib/dayjs'
+
+import { IntervalType } from '~/types'
 
 interface DateDisplayProps {
     date: string
@@ -11,17 +12,17 @@ interface DateDisplayProps {
 }
 
 const DISPLAY_DATE_FORMAT: Record<IntervalType, string> = {
-    minute: 'HH:mm',
+    minute: 'HH:mm:00',
     hour: 'HH:00',
-    day: 'MMM D',
-    week: 'MMM D',
+    day: 'D MMM',
+    week: 'D MMM',
     month: 'MMM',
 }
 
 const dateHighlight = (parsedDate: dayjs.Dayjs, interval: IntervalType): string => {
     switch (interval) {
         case 'minute':
-            return parsedDate.format('DD')
+            return parsedDate.format('MMM D')
         case 'hour':
             return parsedDate.format('MMM D')
         case 'day':
@@ -39,7 +40,7 @@ const dateHighlight = (parsedDate: dayjs.Dayjs, interval: IntervalType): string 
     For example, a single date in a graph will be shown as: `Th` Apr 22.
 */
 export function DateDisplay({ date, secondaryDate, interval, hideWeekRange }: DateDisplayProps): JSX.Element {
-    const parsedDate = dayjs(date)
+    const parsedDate = dayjs.utc(date)
 
     return (
         <>
@@ -56,8 +57,9 @@ export function DateDisplay({ date, secondaryDate, interval, hideWeekRange }: Da
             {interval === 'week' && !hideWeekRange && (
                 <>
                     {/* TODO: @EDsCODE will help validate; this should probably come from the backend  */}
-                    {' - '}
-                    <DateDisplay interval="day" date={parsedDate.add(7, 'day').toJSON()} />
+                    {/* A week ends on the 7th day of the week, so we add 6 days to the start date to get the end date */}
+                    {' – '}
+                    <DateDisplay interval="day" date={parsedDate.add(6, 'day').toJSON()} />
                 </>
             )}
         </>

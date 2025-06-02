@@ -1,8 +1,12 @@
 .taxonomic-filter {
-    min-width: 300px;
-    width: 550px;
+    display: flex;
+    flex-direction: column;
+    width: 650px;
     max-width: calc(100vw - 40px);
-    background: white;
+
+    &.force-minimum-width {
+        min-width: 350px;
+    }
 
     &.one-taxonomic-tab {
         .taxonomic-infinite-list {
@@ -12,51 +16,20 @@
 
     .taxonomic-group-title {
         display: flex;
-        width: 100%;
         align-items: stretch;
-        color: var(--text-muted);
-        text-transform: uppercase;
+        width: 100%;
+        padding-top: 10px;
+        padding-left: 10px;
         font-size: 12px;
-        line-height: 12px;
-        padding-top: 16px;
-        margin-bottom: 12px;
         font-weight: 600;
-        &.with-border {
-            border-top: 1px solid var(--border-light);
-        }
+        line-height: 12px;
+        color: var(--text-secondary);
+        text-transform: uppercase;
     }
 
     .taxonomic-pills {
+        padding-left: 10px;
         margin-top: 8px;
         margin-bottom: 8px;
-        .ant-tag {
-            transition: none;
-            margin-right: 2px;
-            margin-bottom: 2px;
-            cursor: pointer;
-            color: var(--primary);
-            background: var(--bg-side);
-            border-color: var(--bg-side);
-            &.taxonomic-count-zero {
-                color: var(--text-muted);
-            }
-            &.taxonomic-pill-active {
-                color: var(--text-light);
-                background: var(--primary);
-                border-color: var(--primary);
-            }
-        }
-    }
-
-    .ant-input-affix-wrapper {
-        padding: 4px 18px 4px 8px;
-    }
-
-    .magnifier-icon {
-        font-size: 18px;
-        color: var(--text-muted);
-        &.magnifier-icon-active {
-            color: var(--primary);
-        }
     }
 }

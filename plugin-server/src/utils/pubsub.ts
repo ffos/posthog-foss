@@ -1,9 +1,9 @@
-import { captureException } from '@sentry/node'
 import { Redis } from 'ioredis'
 
 import { PluginsServerConfig } from '../types'
-import { status } from './status'
-import { createRedis } from './utils'
+import { createRedis } from './db/redis'
+import { logger } from './logger'
+import { captureException } from './posthog'
 
 export type PubSubTask = ((message: string) => void) | ((message: string) => Promise<void>)
 
@@ -13,23 +13,23 @@ export interface PubSubTaskMap {
 
 export class PubSub {
     private serverConfig: PluginsServerConfig
-    private redis: Redis | null
+    private redisSubscriber?: Redis
+    private redisPublisher?: Promise<Redis>
     public taskMap: PubSubTaskMap
 
     constructor(serverConfig: PluginsServerConfig, taskMap: PubSubTaskMap = {}) {
         this.serverConfig = serverConfig
-        this.redis = null
         this.taskMap = taskMap
     }
 
     public async start(): Promise<void> {
-        if (this.redis) {
+        if (this.redisSubscriber) {
             throw new Error('Started PubSub cannot be started again!')
         }
-        this.redis = await createRedis(this.serverConfig)
+        this.redisSubscriber = await createRedis(this.serverConfig, 'ingestion')
         const channels = Object.keys(this.taskMap)
-        await this.redis.subscribe(channels)
-        this.redis.on('message', (channel: string, message: string) => {
+        await this.redisSubscriber.subscribe(channels)
+        this.redisSubscriber.on('message', (channel: string, message: string) => {
             const task: PubSubTask | undefined = this.taskMap[channel]
             if (!task) {
                 captureException(
@@ -42,16 +42,37 @@ export class PubSub {
             }
             void task(message)
         })
-        status.info('👀', `Pub-sub started for channels: ${channels.join(', ')}`)
+        logger.info('👀', `Pub-sub started for channels: ${channels.join(', ')}`)
     }
 
     public async stop(): Promise<void> {
-        if (!this.redis) {
+        if (!this.redisSubscriber) {
             throw new Error('Unstarted PubSub cannot be stopped!')
         }
-        await this.redis.unsubscribe()
-        this.redis.disconnect()
-        this.redis = null
-        status.info('🛑', `Pub-sub stopped for channels: ${Object.keys(this.taskMap).join(', ')}`)
+
+        await this.redisSubscriber.unsubscribe()
+        if (this.redisSubscriber) {
+            this.redisSubscriber.disconnect()
+        }
+        this.redisSubscriber = undefined
+
+        if (this.redisPublisher) {
+            const redisPublisher = await this.redisPublisher
+            if (redisPublisher) {
+                redisPublisher.disconnect()
+            }
+            this.redisPublisher = undefined
+        }
+
+        logger.info('🛑', `Pub-sub stopped for channels: ${Object.keys(this.taskMap).join(', ')}`)
+    }
+
+    public async publish(channel: string, message: string): Promise<void> {
+        if (!this.redisPublisher) {
+            this.redisPublisher = createRedis(this.serverConfig, 'ingestion')
+        }
+
+        const redisPublisher = await this.redisPublisher
+        await redisPublisher.publish(channel, message)
     }
 }

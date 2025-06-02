@@ -1,35 +1,61 @@
-import { kea } from 'kea'
-import { propertyFilterLogic } from 'lib/components/PropertyFilters/propertyFilterLogic'
+import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { TaxonomicPropertyFilterLogicProps } from 'lib/components/PropertyFilters/types'
-import { AnyPropertyFilter, PropertyFilterValue, PropertyOperator } from '~/types'
-import { taxonomicPropertyFilterLogicType } from './taxonomicPropertyFilterLogicType'
-import { cohortsModel } from '~/models/cohortsModel'
-import { TaxonomicFilterGroup } from 'lib/components/TaxonomicFilter/types'
 import {
+    createDefaultPropertyFilter,
+    isAnyPropertyfilter,
     propertyFilterTypeToTaxonomicFilterType,
+    sanitizePropertyFilter,
     taxonomicFilterTypeToPropertyFilterType,
 } from 'lib/components/PropertyFilters/utils'
 import { taxonomicFilterLogic } from 'lib/components/TaxonomicFilter/taxonomicFilterLogic'
+import {
+    TaxonomicFilterGroup,
+    TaxonomicFilterLogicProps,
+    TaxonomicFilterValue,
+} from 'lib/components/TaxonomicFilter/types'
 
-export const taxonomicPropertyFilterLogic = kea<taxonomicPropertyFilterLogicType>({
-    path: (key) => ['lib', 'components', 'PropertyFilters', 'components', 'taxonomicPropertyFilterLogic', key],
-    props: {} as TaxonomicPropertyFilterLogicProps,
-    key: (props) => `${props.pageKey}-${props.filterIndex}`,
+import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
+import { AnyPropertyFilter, CohortPropertyFilter, EventMetadataPropertyFilter, PropertyFilterType } from '~/types'
 
-    connect: (props: TaxonomicPropertyFilterLogicProps) => ({
-        values: [propertyFilterLogic(props), ['filters'], taxonomicFilterLogic, ['taxonomicGroups']],
-    }),
+import type { taxonomicPropertyFilterLogicType } from './taxonomicPropertyFilterLogicType'
 
-    actions: {
-        selectItem: (taxonomicGroup: TaxonomicFilterGroup, propertyKey?: PropertyFilterValue) => ({
+export const taxonomicPropertyFilterLogic = kea<taxonomicPropertyFilterLogicType>([
+    props({} as TaxonomicPropertyFilterLogicProps),
+    key((props) => `${props.pageKey}-${props.filterIndex}`),
+    path((key) => ['lib', 'components', 'PropertyFilters', 'components', 'taxonomicPropertyFilterLogic', key]),
+    connect((props: TaxonomicPropertyFilterLogicProps) => ({
+        values: [
+            taxonomicFilterLogic({
+                taxonomicFilterLogicKey: props.pageKey,
+                taxonomicGroupTypes: props.taxonomicGroupTypes,
+                onChange: props.taxonomicOnChange,
+                eventNames: props.eventNames,
+                excludedProperties: props.excludedProperties,
+                propertyAllowList: props.propertyAllowList,
+            } as TaxonomicFilterLogicProps),
+            ['taxonomicGroups'],
+            propertyDefinitionsModel,
+            ['describeProperty'],
+        ],
+    })),
+    actions({
+        selectItem: (
+            taxonomicGroup: TaxonomicFilterGroup,
+            propertyKey?: TaxonomicFilterValue,
+            itemPropertyFilterType?: PropertyFilterType,
+            item?: any,
+            originalQuery?: string
+        ) => ({
             taxonomicGroup,
             propertyKey,
+            itemPropertyFilterType,
+            item,
+            originalQuery,
         }),
         openDropdown: true,
         closeDropdown: true,
-    },
-
-    reducers: {
+    }),
+    reducers({
         dropdownOpen: [
             false,
             {
@@ -37,60 +63,50 @@ export const taxonomicPropertyFilterLogic = kea<taxonomicPropertyFilterLogicType
                 closeDropdown: () => false,
             },
         ],
-    },
-
-    selectors: {
+    }),
+    selectors({
         filter: [
-            (s) => [s.filters, (_, props) => props.filterIndex],
-            (filters, filterIndex): AnyPropertyFilter | null => filters[filterIndex] || null,
-        ],
-        selectedCohortName: [
-            (s) => [s.filter, cohortsModel.selectors.cohorts],
-            (filter, cohorts) => (filter?.type === 'cohort' ? cohorts.find((c) => c.id === filter?.value)?.name : null),
+            (_, p) => [p.filters, p.filterIndex],
+            (filters, filterIndex): AnyPropertyFilter | null =>
+                filters[filterIndex] ? sanitizePropertyFilter(filters[filterIndex]) : null,
         ],
         activeTaxonomicGroup: [
             (s) => [s.filter, s.taxonomicGroups],
             (filter, groups): TaxonomicFilterGroup | undefined => {
-                if (filter) {
-                    const taxonomicGroupType = propertyFilterTypeToTaxonomicFilterType(
-                        filter.type,
-                        filter.group_type_index
-                    )
+                if (isAnyPropertyfilter(filter)) {
+                    const taxonomicGroupType = propertyFilterTypeToTaxonomicFilterType(filter)
                     return groups.find((group) => group.type === taxonomicGroupType)
                 }
             },
         ],
-    },
-
-    listeners: ({ actions, values, props }) => ({
-        selectItem: ({ taxonomicGroup, propertyKey }) => {
-            const propertyType = taxonomicFilterTypeToPropertyFilterType(taxonomicGroup.type)
+    }),
+    listeners(({ actions, values, props }) => ({
+        selectItem: ({ taxonomicGroup, propertyKey, itemPropertyFilterType, item, originalQuery }) => {
+            const propertyType = itemPropertyFilterType ?? taxonomicFilterTypeToPropertyFilterType(taxonomicGroup.type)
             if (propertyKey && propertyType) {
-                if (propertyType === 'cohort') {
-                    propertyFilterLogic(props).actions.setFilter(
-                        props.filterIndex,
-                        'id',
-                        propertyKey,
-                        null,
-                        propertyType
-                    )
-                } else {
-                    const operator =
-                        propertyKey === '$active_feature_flags'
-                            ? PropertyOperator.IContains
-                            : values.filter?.operator || PropertyOperator.Exact
+                const filter = createDefaultPropertyFilter(
+                    values.filter,
+                    propertyKey,
+                    propertyType,
+                    taxonomicGroup,
+                    values.describeProperty,
+                    originalQuery
+                )
 
-                    propertyFilterLogic(props).actions.setFilter(
-                        props.filterIndex,
-                        propertyKey.toString(),
-                        null, // Reset value field
-                        operator,
-                        propertyType,
-                        taxonomicGroup.groupTypeIndex
-                    )
+                // Add cohort name if this is a cohort filter
+                if (propertyType === 'cohort' && item?.name) {
+                    const cohortFilter = filter as CohortPropertyFilter
+                    cohortFilter.cohort_name = item.name
                 }
+
+                if (propertyType === PropertyFilterType.EventMetadata && item.id.startsWith('$group_')) {
+                    const eventMetadataFilter = filter as EventMetadataPropertyFilter
+                    eventMetadataFilter.label = item.name
+                }
+
+                props.setFilter(props.filterIndex, filter)
                 actions.closeDropdown()
             }
         },
-    }),
-})
+    })),
+])

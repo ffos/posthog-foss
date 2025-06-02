@@ -1,29 +1,39 @@
-import { Row } from 'antd'
 import clsx from 'clsx'
-import React from 'react'
+import { useValues } from 'kea'
+import { WithinPageHeaderContext } from 'lib/lemon-ui/LemonButton/LemonButton'
+import { useContext } from 'react'
+import { createPortal } from 'react-dom'
+import { DraggableToNotebookProps } from 'scenes/notebooks/AddToNotebook/DraggableToNotebook'
+
+import { breadcrumbsLogic } from '~/layout/navigation/Breadcrumbs/breadcrumbsLogic'
+import { WithinSidePanelContext } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 
 interface PageHeaderProps {
-    title: string | JSX.Element
-    caption?: string | JSX.Element
+    caption?: string | JSX.Element | null | false
     buttons?: JSX.Element | false
-    style?: React.CSSProperties
     tabbedPage?: boolean // Whether the page has tabs for secondary navigation
+    delimited?: boolean
+    notebookProps?: Pick<DraggableToNotebookProps, 'href' | 'node' | 'properties'>
+    className?: string
 }
 
-export function PageHeader({ title, caption, buttons, style, tabbedPage }: PageHeaderProps): JSX.Element {
-    const row = (
-        <Row className="page-title-row" justify={buttons ? 'space-between' : 'start'} align="middle" style={style}>
-            <h1 className="page-title">{title}</h1>
-            {buttons}
-        </Row>
-    )
-    return caption ? (
+export function PageHeader({ caption, buttons, tabbedPage, className }: PageHeaderProps): JSX.Element | null {
+    const { actionsContainer } = useValues(breadcrumbsLogic)
+
+    const withinSidePanel = useContext(WithinSidePanelContext)
+
+    return (
         <>
-            {row}
-            <div className={clsx('page-caption', tabbedPage && 'tabbed')}>{caption}</div>
+            {buttons &&
+                actionsContainer &&
+                !withinSidePanel && // Do not interfere with the main scene if we're only in a side panel here
+                createPortal(
+                    <WithinPageHeaderContext.Provider value={true}>{buttons}</WithinPageHeaderContext.Provider>,
+                    actionsContainer
+                )}
+
+            {caption && <div className={clsx('page-caption', tabbedPage && 'tabbed', className)}>{caption}</div>}
         </>
-    ) : (
-        row
     )
 }
 
@@ -34,9 +44,9 @@ interface SubtitleProps {
 
 export function Subtitle({ subtitle, buttons }: SubtitleProps): JSX.Element {
     return (
-        <Row className="subtitle-row" justify={buttons ? 'space-between' : 'start'} align="middle">
+        <div className={clsx('flex mt-5 items-center', buttons ? 'justify-between' : 'justify-start')}>
             <h2 className="subtitle">{subtitle}</h2>
             {buttons}
-        </Row>
+        </div>
     )
 }

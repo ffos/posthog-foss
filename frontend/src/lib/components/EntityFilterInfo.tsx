@@ -1,57 +1,78 @@
-import { ActionFilter, EntityFilter, EntityTypes, FunnelStepRangeEntityFilter } from '~/types'
-import { Typography } from 'antd'
-import React from 'react'
-import { TextProps } from 'antd/lib/typography/Text'
-import { getKeyMapping } from 'lib/components/PropertyKeyInfo'
-import { getDisplayNameFromEntityFilter } from 'scenes/insights/utils'
+import clsx from 'clsx'
+import { getDisplayNameFromEntityFilter, isAllEventsEntityFilter } from 'scenes/insights/utils'
 
-interface Props {
-    filter: EntityFilter | ActionFilter | FunnelStepRangeEntityFilter
-    showSubTitle?: boolean
-    subTitles?: (string | number | null | undefined)[]
-    swapTitleAndSubtitle?: boolean
-}
+import { getCoreFilterDefinition } from '~/taxonomy/helpers'
+import { ActionFilter, EntityFilter } from '~/types'
 
-function TextWrapper(props: TextProps): JSX.Element {
-    return (
-        <Typography.Text style={{ maxWidth: 400 }} {...props}>
-            {props.children}
-        </Typography.Text>
-    )
+import { TaxonomicFilterGroupType } from './TaxonomicFilter/types'
+
+interface EntityFilterInfoProps {
+    filter: EntityFilter | ActionFilter
+    allowWrap?: boolean
+    showSingleName?: boolean
+    style?: React.CSSProperties
+    filterGroupType?: TaxonomicFilterGroupType
 }
 
 export function EntityFilterInfo({
     filter,
-    showSubTitle = true,
-    subTitles,
-    swapTitleAndSubtitle = false,
-}: Props): JSX.Element {
-    const title = getDisplayNameFromEntityFilter(filter)
-    const subtitle = subTitles ? subTitles.filter((s) => !!s).join(', ') : getDisplayNameFromEntityFilter(filter, false)
-
-    if (filter.type === EntityTypes.NEW_ENTITY || (!title && !subtitle)) {
-        return <TextWrapper title="Select filter">Select filter</TextWrapper>
+    allowWrap = false,
+    showSingleName = false,
+    style,
+    filterGroupType,
+}: EntityFilterInfoProps): JSX.Element {
+    if (isAllEventsEntityFilter(filter) && !filter?.custom_name) {
+        return (
+            <span
+                className={clsx('EntityFilterInfo max-w-100', !allowWrap && 'whitespace-nowrap truncate')}
+                title="All events"
+            >
+                All events
+            </span>
+        )
     }
 
-    const _titleToDisplay = getKeyMapping(title, 'event')?.label?.trim() ?? title ?? undefined
-    const _subTitleToDisplay = getKeyMapping(subtitle, 'event')?.label?.trim() ?? subtitle ?? undefined
-    const titleToDisplay = swapTitleAndSubtitle ? _subTitleToDisplay : _titleToDisplay
-    const subTitleToDisplay = swapTitleAndSubtitle ? _titleToDisplay : _subTitleToDisplay
+    const title = getDisplayNameFromEntityFilter(filter, false)
+    const titleToDisplay =
+        (filterGroupType ? getCoreFilterDefinition(title, filterGroupType)?.label?.trim() : null) ?? title ?? undefined
+
+    // No custom name
+    if (!filter?.custom_name) {
+        return (
+            // eslint-disable-next-line react/forbid-dom-props
+            <span className={!allowWrap ? 'flex truncate  items-center' : ''} style={style}>
+                <span
+                    className={clsx('EntityFilterInfo max-w-100', !allowWrap && 'whitespace-nowrap truncate')}
+                    title={titleToDisplay}
+                >
+                    {titleToDisplay}
+                </span>
+            </span>
+        )
+    }
+
+    // Display custom name first and action title as secondary
+    const customTitle = getDisplayNameFromEntityFilter(filter, true)
 
     return (
-        <span style={{ display: 'flex', flexDirection: 'row', alignItems: 'center' }}>
-            <TextWrapper ellipsis={false} title={titleToDisplay}>
-                {titleToDisplay}
-            </TextWrapper>
-            {showSubTitle && titleToDisplay !== subTitleToDisplay && subTitleToDisplay && (
-                <TextWrapper
-                    ellipsis={true}
-                    type="secondary"
-                    style={{ fontSize: 13, marginLeft: 4 }}
-                    title={subTitleToDisplay}
+        // eslint-disable-next-line react/forbid-dom-props
+        <span className={!allowWrap ? 'flex items-baseline' : ''} style={style}>
+            <span
+                className={clsx('EntityFilterInfo max-w-100', !allowWrap && 'whitespace-nowrap truncate')}
+                title={customTitle ?? undefined}
+            >
+                {customTitle}
+            </span>
+            {!showSingleName && (
+                <span
+                    className={clsx(
+                        'EntityFilterInfo max-w-100 ml-1 text-secondary text-xs',
+                        !allowWrap && 'whitespace-nowrap truncate'
+                    )}
+                    title={titleToDisplay}
                 >
-                    ({subTitleToDisplay})
-                </TextWrapper>
+                    {titleToDisplay}
+                </span>
             )}
         </span>
     )
